@@ -1,0 +1,45 @@
+name: Build and Publish P2
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create ZIP from P2 repo
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression
+          $p2repoDir = "dist/p2repo"
+          $zipFile = "dist/edt_extdumper_1.0.0.zip"
+          $archive = [System.IO.Compression.ZipFile]::Open($zipFile, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            Get-ChildItem $p2repoDir -Recurse -File | ForEach-Object {
+              $entryName = $_.FullName.Substring($p2repoDir.Length + 1) -replace '\\', '/'
+              [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $entryName) | Out-Null
+            }
+          } finally {
+            $archive.Dispose()
+          }
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist/p2repo
+      - name: Upload ZIP to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/edt_extdumper_*.zip

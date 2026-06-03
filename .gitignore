@@ -1,0 +1,12 @@
+# Build output
+target/
+dist/*.zip
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# OS
+Thumbs.db
+.DS_Store
