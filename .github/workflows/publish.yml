@@ -21,7 +21,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression
-          $p2repoDir = "dist/p2repo"
+          $p2repoDir = (Get-Item "dist/p2repo").FullName
           $zipFile = "dist/edt_extdumper_1.0.0.zip"
           $archive = [System.IO.Compression.ZipFile]::Open($zipFile, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
