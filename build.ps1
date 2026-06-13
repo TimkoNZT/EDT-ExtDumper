@@ -136,16 +136,16 @@ if (Test-Path $contentJar) {
     $catPattern = [regex]::Escape("<unit id='$catId'")
     if ($contentXml -notmatch $catPattern) {
         $categoryUnit = @"
-    <unit id='$PluginId.category' version='1.0.0' singleton='false'>
+    <unit id='$PluginId.category' version='$PluginVersion' singleton='false'>
       <properties size='2'>
         <property name='org.eclipse.equinox.p2.name' value='NZT Tools'/>
         <property name='org.eclipse.equinox.p2.type.category' value='true'/>
       </properties>
       <provides size='1'>
-        <provided namespace='org.eclipse.equinox.p2.iu' name='$PluginId.category' version='1.0.0'/>
+        <provided namespace='org.eclipse.equinox.p2.iu' name='$PluginId.category' version='$PluginVersion'/>
       </provides>
       <requires size='1'>
-        <required namespace='org.eclipse.equinox.p2.iu' name='${PluginId}.feature.feature.group' range='[1.0.0,1.0.0]'/>
+        <required namespace='org.eclipse.equinox.p2.iu' name='${PluginId}.feature.feature.group' range='[$PluginVersion,$PluginVersion]'/>
       </requires>
       <touchpoint id='null' version='0.0.0'/>
     </unit>

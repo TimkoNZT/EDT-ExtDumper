@@ -17,12 +17,16 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Create ZIP from P2 repo
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression
           $p2repoDir = (Get-Item "dist/p2repo").FullName
-          $tag = git describe --tags --abbrev=0 2>$null
+          $tag = & git describe --tags --abbrev=0 2>$null
+          if ($LASTEXITCODE -ne 0) { $tag = $null }
           $version = if ($tag) { $tag -replace '^v', '' } else { "1.0.0" }
           $zipFile = "dist/edt_extdumper_${version}.zip"
           $archive = [System.IO.Compression.ZipFile]::Open($zipFile, [System.IO.Compression.ZipArchiveMode]::Create)
