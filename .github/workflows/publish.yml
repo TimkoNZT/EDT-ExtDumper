@@ -22,7 +22,9 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression
           $p2repoDir = (Get-Item "dist/p2repo").FullName
-          $zipFile = "dist/edt_extdumper_1.0.0.zip"
+          $tag = git describe --tags --abbrev=0 2>$null
+          $version = if ($tag) { $tag -replace '^v', '' } else { "1.0.0" }
+          $zipFile = "dist/edt_extdumper_${version}.zip"
           $archive = [System.IO.Compression.ZipFile]::Open($zipFile, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
             Get-ChildItem $p2repoDir -Recurse -File | ForEach-Object {

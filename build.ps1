@@ -7,9 +7,12 @@ $ErrorActionPreference = "Stop"
 
 $PluginDir = Split-Path -Parent $PSCommandPath
 $PluginId = "com.nzt.edt.extdumper"
-$PluginVersion = "1.0.0"
 $FeatureId = "$PluginId.feature"
-$FeatureVersion = "1.0.0"
+
+# Read versions from META-INF/MANIFEST.MF — single source of truth
+$manifest = Get-Content (Join-Path $PluginDir "META-INF\MANIFEST.MF") -Raw
+$PluginVersion = if ($manifest -match 'Bundle-Version:\s*(\S+)') { $matches[1] } else { "1.0.0" }
+$FeatureVersion = $PluginVersion
 
 if (-not $SrcDir) { $SrcDir = Join-Path $PluginDir "src" }
 if (-not $OutDir) { $OutDir = Join-Path $PluginDir "dist" }
