@@ -3,17 +3,28 @@ package com.nzt.edt.extdumper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IAdapterManager;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
+import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EObject;
+import org.eclipse.emf.ecore.resource.Resource;
+import org.eclipse.emf.ecore.resource.ResourceSet;
+import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
@@ -34,11 +45,17 @@ import com._1c.g5.v8.dt.platform.services.core.dump.IExternalObjectDumpSupport;
 
 public class GenerateDumpHandler extends AbstractHandler {
 
+    private static final String ERR_NOT_EXTERNAL =
+        "Выбранный объект не является внешней обработкой или отчётом.\n"
+        + "Генерация .epf/.erf доступна только для ExternalDataProcessor и ExternalReport.";
+
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
         EObject object = extractObject(event);
-        if (object == null)
+        if (object == null) {
+            showError(HandlerUtil.getActiveShell(event), ERR_NOT_EXTERNAL);
             return null;
+        }
 
         IProject project = resolveProject(object);
         if (project == null) {
@@ -60,6 +77,12 @@ public class GenerateDumpHandler extends AbstractHandler {
             return null;
         }
 
+        // Resolve managed EObject from project's external objects
+        EObject managed = resolveManagedObject(project, object);
+        if (managed != null) {
+            object = managed;
+        }
+
         Shell shell = HandlerUtil.getActiveShell(event);
         String name = getObjectName(object);
         scheduleDump(shell, project, object, dump, name);
@@ -67,32 +90,88 @@ public class GenerateDumpHandler extends AbstractHandler {
         return null;
     }
 
-    // ============== Фаза 1: Извлечение ==============
+    // ============== Extraction ==============
 
     private static EObject extractObject(ExecutionEvent event) {
         ISelection selection = HandlerUtil.getCurrentSelection(event);
         if (!(selection instanceof IStructuredSelection ss) || ss.isEmpty())
             return null;
         Object first = ss.getFirstElement();
-        return first instanceof EObject o ? o : null;
+
+        if (first instanceof EObject eo)
+            return eo;
+
+        if (first instanceof IFile file)
+            return resolveEObjectFromFile(file);
+
+        if (first instanceof IFolder folder)
+            return resolveEObjectFromFolder(folder);
+
+        return null;
+    }
+
+    private static EObject resolveEObjectFromFolder(IFolder folder) {
+        IFile mdoFile = folder.getFile(folder.getName() + ".mdo");
+        if (!mdoFile.exists())
+            return null;
+        return resolveEObjectFromFile(mdoFile);
+    }
+
+    private static EObject resolveEObjectFromFile(IFile file) {
+        if (!"mdo".equals(file.getFileExtension()))
+            return null;
+
+        // Try adapter
+        IAdapterManager mgr = Platform.getAdapterManager();
+        EObject adapted = (EObject) mgr.loadAdapter(file, EObject.class.getName());
+        if (adapted instanceof ExternalDataProcessor || adapted instanceof ExternalReport)
+            return adapted;
+
+        // Fallback: load from EMF resource
+        try {
+            URI uri = URI.createPlatformResourceURI(file.getFullPath().toString(), true);
+            ResourceSet rs = new ResourceSetImpl();
+            Resource resource = rs.getResource(uri, true);
+            if (resource == null || resource.getContents().isEmpty())
+                return null;
+            EObject root = resource.getContents().get(0);
+            if (root instanceof ExternalDataProcessor || root instanceof ExternalReport)
+                return root;
+        } catch (Exception e) {
+            // invalid .mdo
+        }
+        return null;
     }
 
     private static String getObjectName(EObject object) {
-        if (object instanceof ExternalDataProcessor ep)
-            return ep.getName();
-        if (object instanceof ExternalReport er)
-            return er.getName();
+        if (object instanceof ExternalDataProcessor ep) return ep.getName();
+        if (object instanceof ExternalReport er) return er.getName();
         return object.toString();
     }
 
-    // ============== Фаза 2: Валидация ==============
+    // ============== Validation ==============
 
     private static IProject resolveProject(EObject object) {
         IV8ProjectManager mgr = lookupService(IV8ProjectManager.class);
-        if (mgr == null)
-            return null;
+        if (mgr == null) return null;
         IV8Project v8 = mgr.getProject(object);
-        return v8 != null ? v8.getProject() : null;
+        if (v8 == null) return null;
+        return v8.getProject();
+    }
+
+    private static EObject resolveManagedObject(IProject project, EObject rawObject) {
+        IV8ProjectManager mgr = lookupService(IV8ProjectManager.class);
+        if (mgr == null) return null;
+        IV8Project v8 = mgr.getProject(project);
+        if (!(v8 instanceof IExternalObjectProject ext)) return null;
+
+        Collection<?> externalObjects = ext.getExternalObjects();
+        String rawName = getObjectName(rawObject);
+        for (Object obj : externalObjects) {
+            if (obj instanceof EObject eo && rawName.equals(getObjectName(eo)))
+                return eo;
+        }
+        return null;
     }
 
     private static IStatus checkDumpPreconditions(IProject project, IExternalObjectDumpSupport dump) {
@@ -115,7 +194,7 @@ public class GenerateDumpHandler extends AbstractHandler {
         return Status.OK_STATUS;
     }
 
-    // ============== Фаза 3: Генерация ==============
+    // ============== Generation ==============
 
     private static void scheduleDump(Shell shell, IProject project, EObject object,
             IExternalObjectDumpSupport dump, String objectName) {
@@ -178,21 +257,16 @@ public class GenerateDumpHandler extends AbstractHandler {
                     Path original = backupPath.resolveSibling(
                         backupPath.getFileName().toString().replaceAll("\\.bak$", ""));
                     Files.move(backupPath, original, StandardCopyOption.REPLACE_EXISTING);
-                } catch (java.io.IOException e) {
-                    // не можем восстановить — лог только
-                }
+                } catch (java.io.IOException e) { /* ignore */ }
             }
         };
         job.schedule();
     }
 
-    // ============== UI: Уведомления ==============
+    // ============== UI ==============
 
     private static void showSuccessAsync(Shell shell, String path) {
-        asyncExec(shell, () -> {
-            DumpNotification notification = new DumpNotification(shell, path);
-            notification.open();
-        });
+        asyncExec(shell, () -> new DumpNotification(shell, path).open());
     }
 
     private static void showErrorAsync(Shell shell, String message) {
@@ -200,30 +274,25 @@ public class GenerateDumpHandler extends AbstractHandler {
     }
 
     private static void showError(Shell shell, String message) {
-        if (shell == null || shell.isDisposed())
-            return;
+        if (shell == null || shell.isDisposed()) return;
         MessageDialog.openError(shell, "Ошибка", message);
     }
 
     private static void asyncExec(Shell shell, Runnable r) {
         Display d = shell.getDisplay();
-        if (d != null && !d.isDisposed())
-            d.asyncExec(r);
+        if (d != null && !d.isDisposed()) d.asyncExec(r);
     }
 
-    // ============== OSGi: Service Locator ==============
+    // ============== OSGi ==============
 
     @SuppressWarnings("unchecked")
     private static <T> T lookupService(Class<T> type) {
         Bundle b = FrameworkUtil.getBundle(type);
-        if (b == null)
-            return null;
+        if (b == null) return null;
         BundleContext ctx = b.getBundleContext();
-        if (ctx == null)
-            return null;
+        if (ctx == null) return null;
         ServiceReference<T> ref = ctx.getServiceReference(type);
-        if (ref == null)
-            return null;
+        if (ref == null) return null;
         T service = ctx.getService(ref);
         ctx.ungetService(ref);
         return service;
@@ -233,4 +302,3 @@ public class GenerateDumpHandler extends AbstractHandler {
         return new Status(Status.ERROR, Activator.PLUGIN_ID, message);
     }
 }
-

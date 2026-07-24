@@ -19,6 +19,7 @@
                   <or>
                      <instanceof value="com._1c.g5.v8.dt.metadata.mdclass.ExternalDataProcessor"/>
                      <instanceof value="com._1c.g5.v8.dt.metadata.mdclass.ExternalReport"/>
+                     <instanceof value="org.eclipse.core.resources.IResource"/>
                   </or>
                </iterate>
             </with>
@@ -46,7 +47,26 @@
             </visibleWhen>
          </command>
       </menuContribution>
+      <menuContribution
+            allPopups="false"
+            locationURI="popup:org.eclipse.ui.navigator.ProjectExplorer#PopupMenu?after=group.edit">
+         <command
+               commandId="com.nzt.edt.extdumper.generate"
+               icon="icons/dump.png"
+               style="push">
+            <visibleWhen checkEnabled="false">
+               <with variable="activeMenuSelection">
+                  <iterate ifEmpty="false">
+                     <or>
+                        <instanceof value="com._1c.g5.v8.dt.metadata.mdclass.ExternalDataProcessor"/>
+                        <instanceof value="com._1c.g5.v8.dt.metadata.mdclass.ExternalReport"/>
+                        <instanceof value="org.eclipse.core.resources.IResource"/>
+                     </or>
+                  </iterate>
+               </with>
+            </visibleWhen>
+         </command>
+      </menuContribution>
    </extension>
 
 </plugin>
-
