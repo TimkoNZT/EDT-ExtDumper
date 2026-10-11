@@ -79,7 +79,9 @@ $javaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { "javac" }
 $javac = Join-Path $javaHome "bin\javac"
 $javaFiles = Get-ChildItem $SrcDir -Recurse -Filter "*.java" | ForEach-Object { $_.FullName }
 Write-Output "Compiling $($javaFiles.Count) source files..."
-& $javac --release 17 -cp $classpath -d $classesOut -sourcepath $SrcDir $javaFiles 2>&1
+# NB: --release 17 невозможен: EDT 2026.2 собран под Java 25 (class v69),
+# javac в release-режиме такие классы не читает. -source/-target держат байткод 61.
+& $javac -source 17 -target 17 -cp $classpath -d $classesOut -sourcepath $SrcDir $javaFiles
 if ($LASTEXITCODE -ne 0) { Write-Error "Compilation failed"; exit 1 }
 Write-Output "Compilation OK"
 

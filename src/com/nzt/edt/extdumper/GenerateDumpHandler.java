@@ -77,7 +77,6 @@ public class GenerateDumpHandler extends AbstractHandler {
             return null;
         }
 
-        // Resolve managed EObject from project's external objects
         EObject managed = resolveManagedObject(project, object);
         if (managed != null) {
             object = managed;
@@ -89,8 +88,6 @@ public class GenerateDumpHandler extends AbstractHandler {
 
         return null;
     }
-
-    // ============== Extraction ==============
 
     private static EObject extractObject(ExecutionEvent event) {
         ISelection selection = HandlerUtil.getCurrentSelection(event);
@@ -121,13 +118,11 @@ public class GenerateDumpHandler extends AbstractHandler {
         if (!"mdo".equals(file.getFileExtension()))
             return null;
 
-        // Try adapter
         IAdapterManager mgr = Platform.getAdapterManager();
         EObject adapted = (EObject) mgr.loadAdapter(file, EObject.class.getName());
         if (adapted instanceof ExternalDataProcessor || adapted instanceof ExternalReport)
             return adapted;
 
-        // Fallback: load from EMF resource
         try {
             URI uri = URI.createPlatformResourceURI(file.getFullPath().toString(), true);
             ResourceSet rs = new ResourceSetImpl();
@@ -138,7 +133,6 @@ public class GenerateDumpHandler extends AbstractHandler {
             if (root instanceof ExternalDataProcessor || root instanceof ExternalReport)
                 return root;
         } catch (Exception e) {
-            // invalid .mdo
         }
         return null;
     }
@@ -148,8 +142,6 @@ public class GenerateDumpHandler extends AbstractHandler {
         if (object instanceof ExternalReport er) return er.getName();
         return object.toString();
     }
-
-    // ============== Validation ==============
 
     private static IProject resolveProject(EObject object) {
         IV8ProjectManager mgr = lookupService(IV8ProjectManager.class);
@@ -193,8 +185,6 @@ public class GenerateDumpHandler extends AbstractHandler {
 
         return Status.OK_STATUS;
     }
-
-    // ============== Generation ==============
 
     private static void scheduleDump(Shell shell, IProject project, EObject object,
             IExternalObjectDumpSupport dump, String objectName) {
@@ -257,13 +247,11 @@ public class GenerateDumpHandler extends AbstractHandler {
                     Path original = backupPath.resolveSibling(
                         backupPath.getFileName().toString().replaceAll("\\.bak$", ""));
                     Files.move(backupPath, original, StandardCopyOption.REPLACE_EXISTING);
-                } catch (java.io.IOException e) { /* ignore */ }
+                } catch (java.io.IOException e) {}
             }
         };
         job.schedule();
     }
-
-    // ============== UI ==============
 
     private static void showSuccessAsync(Shell shell, String path) {
         asyncExec(shell, () -> new DumpNotification(shell, path).open());
@@ -282,8 +270,6 @@ public class GenerateDumpHandler extends AbstractHandler {
         Display d = shell.getDisplay();
         if (d != null && !d.isDisposed()) d.asyncExec(r);
     }
-
-    // ============== OSGi ==============
 
     @SuppressWarnings("unchecked")
     private static <T> T lookupService(Class<T> type) {
