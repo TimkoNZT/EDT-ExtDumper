@@ -2,6 +2,10 @@
 <?eclipse version="3.4"?>
 <plugin>
 
+   <extension point="org.eclipse.ui.startup">
+      <startup class="com.nzt.edt.extdumper.EarlyStartup"/>
+   </extension>
+
    <extension point="org.eclipse.ui.commands">
       <command
             id="com.nzt.edt.extdumper.generate"
