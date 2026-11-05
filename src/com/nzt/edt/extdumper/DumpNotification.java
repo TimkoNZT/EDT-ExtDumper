@@ -1,5 +1,10 @@
 package com.nzt.edt.extdumper;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.jface.dialogs.PopupDialog;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.swt.SWT;
@@ -81,10 +86,15 @@ public class DumpNotification extends PopupDialog {
 
         Label pathLabel = new Label(textContainer, SWT.WRAP);
         pathLabel.setText(filePath);
-        pathLabel.setToolTipText(filePath);
         pathLabel.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
         pathLabel.setBackground(bg);
-        pathLabel.setForeground(fg);
+        pathLabel.setForeground(parent.getDisplay().getSystemColor(SWT.COLOR_LINK_FOREGROUND));
+
+        enableReveal(canvas);
+        enableReveal(iconLabel);
+        enableReveal(textContainer);
+        enableReveal(titleLabel);
+        enableReveal(pathLabel);
 
         Composite buttonContainer = new Composite(textContainer, SWT.NONE);
         GridLayout buttonLayout = new GridLayout(1, false);
@@ -102,6 +112,42 @@ public class DumpNotification extends PopupDialog {
         closeButton.addListener(SWT.Selection, e -> close());
 
         return canvas;
+    }
+
+    private void enableReveal(Control control) {
+        control.setCursor(control.getDisplay().getSystemCursor(SWT.CURSOR_HAND));
+        control.setToolTipText("Открыть в проводнике");
+        control.addListener(SWT.MouseUp, event -> {
+            if (event.button == 1) {
+                revealInFileManager();
+            }
+        });
+    }
+
+    private void revealInFileManager() {
+        try {
+            openInFileManager(Path.of(filePath));
+            close();
+        } catch (IOException e) {
+            Activator.logError("Не удалось открыть расположение файла: " + filePath, e);
+        }
+    }
+
+    private static void openInFileManager(Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        String os = Platform.getOS();
+        if (Platform.OS_WIN32.equals(os)) {
+            // Путь отдельным аргументом, иначе файл с пробелами в пути не выделяется.
+            new ProcessBuilder("explorer.exe", "/select,", absolute.toString()).start();
+        } else if (Platform.OS_MACOSX.equals(os)) {
+            new ProcessBuilder("open", "-R", absolute.toString()).start();
+        } else {
+            Path folder = Files.isDirectory(absolute) ? absolute : absolute.getParent();
+            if (folder == null) {
+                throw new IOException(absolute.toString());
+            }
+            new ProcessBuilder("xdg-open", folder.toString()).start();
+        }
     }
 
     @Override
