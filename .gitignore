@@ -9,7 +9,6 @@ dist/*.zip
 
 # Internal docs
 AGENTS.md
-.mimocode/
 
 # OS
 Thumbs.db

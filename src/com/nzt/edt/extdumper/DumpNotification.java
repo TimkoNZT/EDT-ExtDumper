@@ -22,16 +22,22 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Shell;
-import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 
 public class DumpNotification extends PopupDialog {
 
     private static final int FADE_STEPS = 20;
     private static final int FADE_INTERVAL = 25;
+    private static final int AUTO_CLOSE_MS = 10000;
+
+    private static final String[][] FOLDER_ICON_SOURCES = {
+        { "com._1c.g5.v8.dt.dcs.ui", "icons/obj16/Folder.png" },
+        { "com._1c.g5.v8.dt.bsl.ui", "icons/obj16/folder.png" },
+    };
 
     private final String filePath;
     private Image icon;
+    private Image folderIcon;
     private Font boldFont;
 
     public DumpNotification(Shell parentShell, String filePath) {
@@ -86,23 +92,30 @@ public class DumpNotification extends PopupDialog {
 
         Label pathLabel = new Label(textContainer, SWT.WRAP);
         pathLabel.setText(filePath);
+        pathLabel.setToolTipText(filePath);
         pathLabel.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
         pathLabel.setBackground(bg);
-        pathLabel.setForeground(parent.getDisplay().getSystemColor(SWT.COLOR_LINK_FOREGROUND));
-
-        enableReveal(canvas);
-        enableReveal(iconLabel);
-        enableReveal(textContainer);
-        enableReveal(titleLabel);
-        enableReveal(pathLabel);
+        pathLabel.setForeground(fg);
 
         Composite buttonContainer = new Composite(textContainer, SWT.NONE);
-        GridLayout buttonLayout = new GridLayout(1, false);
+        GridLayout buttonLayout = new GridLayout(2, false);
         buttonLayout.marginWidth = 0;
         buttonLayout.marginHeight = 0;
         buttonContainer.setLayout(buttonLayout);
         buttonContainer.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
         buttonContainer.setBackground(bg);
+
+        Button openButton = new Button(buttonContainer, SWT.PUSH | SWT.LEFT);
+        openButton.setText("Открыть");
+        folderIcon = loadFolderIcon();
+        if (folderIcon != null) {
+            openButton.setImage(folderIcon);
+        }
+        openButton.setToolTipText("Открыть папку с выгруженным файлом");
+        openButton.setBackground(bg);
+        openButton.setForeground(fg);
+        openButton.setLayoutData(new GridData(SWT.END, SWT.CENTER, false, false));
+        openButton.addListener(SWT.Selection, e -> revealInFileManager());
 
         Button closeButton = new Button(buttonContainer, SWT.PUSH);
         closeButton.setText("Закрыть");
@@ -114,30 +127,40 @@ public class DumpNotification extends PopupDialog {
         return canvas;
     }
 
-    private void enableReveal(Control control) {
-        control.setCursor(control.getDisplay().getSystemCursor(SWT.CURSOR_HAND));
-        control.setToolTipText("Открыть в проводнике");
-        control.addListener(SWT.MouseUp, event -> {
-            if (event.button == 1) {
-                revealInFileManager();
-            }
-        });
-    }
-
     private void revealInFileManager() {
         try {
             openInFileManager(Path.of(filePath));
             close();
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             Activator.logError("Не удалось открыть расположение файла: " + filePath, e);
         }
+    }
+
+    private static Image loadFolderIcon() {
+        for (String[] source : FOLDER_ICON_SOURCES) {
+            try {
+                ImageDescriptor desc = AbstractUIPlugin.imageDescriptorFromPlugin(source[0], source[1]);
+                if (desc == null) {
+                    continue;
+                }
+                Image img = desc.createImage();
+                if (img == null || img.getBounds().width < 8 || img.getBounds().height < 8) {
+                    if (img != null) {
+                        img.dispose();
+                    }
+                    continue;
+                }
+                return img;
+            } catch (Throwable t) {
+            }
+        }
+        return null;
     }
 
     private static void openInFileManager(Path path) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
         String os = Platform.getOS();
         if (Platform.OS_WIN32.equals(os)) {
-            // Путь отдельным аргументом, иначе файл с пробелами в пути не выделяется.
             new ProcessBuilder("explorer.exe", "/select,", absolute.toString()).start();
         } else if (Platform.OS_MACOSX.equals(os)) {
             new ProcessBuilder("open", "-R", absolute.toString()).start();
@@ -198,7 +221,7 @@ public class DumpNotification extends PopupDialog {
             });
         }
 
-        display.timerExec(5000, () -> {
+        display.timerExec(AUTO_CLOSE_MS, () -> {
             if (!shell.isDisposed()) close();
         });
 
@@ -213,6 +236,9 @@ public class DumpNotification extends PopupDialog {
         }
         if (icon != null && !icon.isDisposed()) {
             icon.dispose();
+        }
+        if (folderIcon != null && !folderIcon.isDisposed()) {
+            folderIcon.dispose();
         }
         if (boldFont != null && !boldFont.isDisposed()) {
             boldFont.dispose();

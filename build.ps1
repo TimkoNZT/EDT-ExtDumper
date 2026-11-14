@@ -5,7 +5,7 @@ param(
     [string]$SrcDir,
     [switch]$Release
 )
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $PluginDir = Split-Path -Parent $PSCommandPath
 $ManifestPath = Join-Path $PluginDir "META-INF\MANIFEST.MF"
@@ -46,9 +46,17 @@ $edtHomeCandidates = @(
 $edtHome = $null
 foreach ($base in $edtHomeCandidates) {
     if (Test-Path $base) {
-        $dirs = Get-ChildItem $base -Directory -Name | Where-Object { $_ -match "1c-edt" }
-        if ($dirs) { $edtHome = Join-Path $base $dirs[0]; break }
+        $dirs = Get-ChildItem $base -Directory -Name | Where-Object { $_ -match "1c-edt" } | Sort-Object -Descending
+        foreach ($d in $dirs) {
+            $candidate = Join-Path $base $d
+            if ((Test-Path (Join-Path $candidate "plugins")) -and (Test-Path (Join-Path $candidate "1cedtc.exe"))) {
+                $edtHome = $candidate
+                break
+            }
+        }
+        if (-not $edtHome -and $dirs) { $edtHome = Join-Path $base $dirs[0] }
     }
+    if ($edtHome) { break }
 }
 if (-not $edtHome) { $edtHome = $env:EDT_HOME }
 if (-not $edtHome -or -not (Test-Path $edtHome)) { Write-Error "EDT not found"; exit 1 }
@@ -76,12 +84,30 @@ $classesOut = Join-Path $TargetDir "classes"
 New-Item -ItemType Directory -Path $classesOut -Force | Out-Null
 
 $javaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { "javac" }
-$javac = Join-Path $javaHome "bin\javac"
+$javac = if ($javaHome -eq "javac") { "javac" } else { Join-Path $javaHome "bin\javac" }
+
+$javacMajor = 0
+try {
+    $verText = (& $javac -version 2>&1 | Out-String)
+    if ($verText -match "javac (\d+)") { $javacMajor = [int]$matches[1] }
+} catch { $javacMajor = 0 }
+if ($javacMajor -lt 25) {
+    $axiom = Get-ChildItem "C:\Program Files\1C\1CE\components" -Directory -Filter "axiom-jdk-full-25*" -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending | Select-Object -First 1
+    if ($axiom) {
+        Write-Output "JDK: JAVA_HOME=$javaHome ($($javacMajor)) < 25 — используется $($axiom.FullName)"
+        $javaHome = $axiom.FullName
+        $javac = Join-Path $javaHome "bin\javac"
+    } else {
+        Write-Error "Нужен JDK 25+ (EDT 2026.2 собрана под Java 25). JAVA_HOME=$javaHome"
+        exit 1
+    }
+}
 $javaFiles = Get-ChildItem $SrcDir -Recurse -Filter "*.java" | ForEach-Object { $_.FullName }
 Write-Output "Compiling $($javaFiles.Count) source files..."
 # NB: --release 17 невозможен: EDT 2026.2 собран под Java 25 (class v69),
 # javac в release-режиме такие классы не читает. -source/-target держат байткод 61.
-& $javac -source 17 -target 17 -cp $classpath -d $classesOut -sourcepath $SrcDir $javaFiles
+& $javac -nowarn -source 17 -target 17 -cp $classpath -d $classesOut -sourcepath $SrcDir $javaFiles
 if ($LASTEXITCODE -ne 0) { Write-Error "Compilation failed"; exit 1 }
 Write-Output "Compilation OK"
 
@@ -162,6 +188,9 @@ $p2repoUri = "file:/$($p2repoDir -replace '\\', '/')"
 Write-Output "Running FeaturesAndBundlesPublisher..."
 & $1cedtc -application org.eclipse.equinox.p2.publisher.FeaturesAndBundlesPublisher `
     -source "$p2repoDir" -metadataRepository "$p2repoUri" -artifactRepository "$p2repoUri" -publishArtifacts -compress
+if ($LASTEXITCODE -ne 0) { Write-Error "p2 publisher failed (exit $LASTEXITCODE)"; exit 1 }
+if (-not (Test-Path (Join-Path $p2repoDir "content.jar"))) { Write-Error "p2 publisher: content.jar не создан"; exit 1 }
+if (-not (Test-Path (Join-Path $p2repoDir "artifacts.jar"))) { Write-Error "p2 publisher: artifacts.jar не создан"; exit 1 }
 Remove-Item -LiteralPath (Join-Path $p2repoDir "content_xml") -Recurse -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $p2repoDir "artifacts_xml") -Recurse -ErrorAction SilentlyContinue
 
@@ -219,12 +248,18 @@ artifact.repository.factory.order= artifacts.jar
 
 # ---------- 10. ZIP of P2 repo ----------
 $zipFile = Join-Path $OutDir "edt_extdumper_${PluginVersion}.zip"
-$tmpDir = Join-Path $OutDir "_zip_tmp"
-if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
-Copy-Item -Recurse $p2repoDir $tmpDir
 if (Test-Path $zipFile) { Remove-Item $zipFile -Force }
-Compress-Archive -Path "$tmpDir\*" -DestinationPath $zipFile -CompressionLevel Optimal
-Remove-Item $tmpDir -Recurse -Force
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::Open($zipFile, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    Get-ChildItem $p2repoDir -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($p2repoDir.Length + 1).Replace('\', '/')
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $rel) | Out-Null
+    }
+} finally {
+    $zip.Dispose()
+}
 Write-Output "Plugin ZIP (P2 archive): $zipFile ($((Get-Item $zipFile).Length) bytes)"
 
 Write-Output ""
